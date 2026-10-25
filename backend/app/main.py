@@ -1,4 +1,5 @@
 import os
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,8 +9,34 @@ load_dotenv()
 
 from app.models.database import init_db, SessionLocal
 from app.api.routes import router, ensure_db_seeded
-from app.data.disasters_data import fetch_live_usgs_earthquakes
-from app.models.database import DisasterEventModel
+from app.services.world_monitor import world_monitor_service
+
+
+import logging
+
+logger = logging.getLogger("earthwatch")
+
+
+async def _run_sync_with_session():
+    db = SessionLocal()
+    try:
+        await world_monitor_service.sync_all_live_telemetry(db)
+    except Exception as exc:
+        logger.warning(f"World telemetry sync error: {exc}")
+    finally:
+        db.close()
+
+
+async def periodic_world_telemetry_sync():
+    """Background worker that continuously pulls fresh real-time feeds every 5 minutes."""
+    while True:
+        try:
+            await asyncio.sleep(300)  # 5 min cadence
+            await _run_sync_with_session()
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:
+            logger.warning(f"Periodic sync encountered error: {exc}")
 
 
 @asynccontextmanager
@@ -19,42 +46,22 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         ensure_db_seeded(db)
-        # Try initial background sync of live earthquakes
-        try:
-            live_quakes = await fetch_live_usgs_earthquakes()
-            for q in live_quakes:
-                if not db.query(DisasterEventModel).filter(DisasterEventModel.id == q["id"]).first():
-                    ev = DisasterEventModel(
-                        id=q["id"],
-                        title=q["title"],
-                        type=q["type"],
-                        latitude=q["latitude"],
-                        longitude=q["longitude"],
-                        severity=q["severity"],
-                        description=q["description"],
-                        detected_at=q["detected_at"],
-                        source=q["source"],
-                        status=q["status"],
-                        affected_area_km2=q.get("affected_area_km2"),
-                        estimated_population=q.get("estimated_population"),
-                        ai_summary=q.get("ai_summary"),
-                        is_live=True,
-                        is_simulated=False
-                    )
-                    db.add(ev)
-            db.commit()
-        except Exception:
-            pass
-
-        # Warm up global feeds asynchronously in background so first spot touch is instant
-        import asyncio
-        from app.data.nasa_eonet import fetch_nasa_eonet_events
-        from app.data.usgs_data import fetch_usgs_local_earthquakes
-        asyncio.create_task(fetch_usgs_local_earthquakes(0, 0, radius_km=100))
-        asyncio.create_task(fetch_nasa_eonet_events(days=7, limit=100))
     finally:
         db.close()
+
+    # Immediate background sync of live world monitor feeds with dedicated session
+    asyncio.create_task(_run_sync_with_session())
+
+    # Warm up local feeds asynchronously
+    from app.data.nasa_eonet import fetch_nasa_eonet_events
+    from app.data.usgs_data import fetch_usgs_local_earthquakes
+    asyncio.create_task(fetch_usgs_local_earthquakes(0, 0, radius_km=100))
+    asyncio.create_task(fetch_nasa_eonet_events(days=7, limit=100))
+
+    # Start periodic background synchronization worker
+    worker_task = asyncio.create_task(periodic_world_telemetry_sync())
     yield
+    worker_task.cancel()
 
 
 app = FastAPI(
@@ -67,7 +74,7 @@ app = FastAPI(
 # Enable CORS for frontend Vite dev and production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -88,6 +95,7 @@ def root():
 
 
 @app.get("/health")
+@app.get("/api/health")
 def health():
     return {"status": "healthy", "service": "earthwatch-backend"}
 

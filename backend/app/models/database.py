@@ -1,6 +1,6 @@
 import os
-from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean
+from datetime import datetime, timezone
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, event
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship as orm_relationship
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database/earthwatch.db")
@@ -8,15 +8,32 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./database/earthwatch.db")
 # Ensure database directory exists if using sqlite
 if DATABASE_URL.startswith("sqlite"):
     db_path = DATABASE_URL.replace("sqlite:///", "")
-    os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+    if db_path and db_path != ":memory:":
+        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+    connect_args={"check_same_thread": False, "timeout": 15} if DATABASE_URL.startswith("sqlite") else {}
 )
+
+# Enable WAL mode and busy_timeout for SQLite concurrent access
+if DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+            cursor.close()
+        except Exception:
+            pass
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 
 class SatelliteModel(Base):
@@ -45,7 +62,7 @@ class SatelliteModel(Base):
     data_source = Column(String, default="CelesTrak / NORAD")
     status = Column(String, default="Active")
     is_live = Column(Boolean, default=True)
-    last_updated = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime, default=utc_now)
 
     # Relationships
     event_associations = orm_relationship("EventSatelliteModel", back_populates="satellite")
@@ -61,7 +78,7 @@ class DisasterEventModel(Base):
     longitude = Column(Float, nullable=False)
     severity = Column(String, nullable=False, index=True) # low, moderate, high, critical
     description = Column(Text, nullable=True)
-    detected_at = Column(DateTime, default=datetime.utcnow)
+    detected_at = Column(DateTime, default=utc_now)
     source = Column(String, nullable=False) # "USGS", "NASA EONET", "Copernicus EMS", "NOAA", "Simulated"
     status = Column(String, default="Active") # "Active", "Contained", "Monitoring", "Resolved"
     affected_area_km2 = Column(Float, nullable=True)

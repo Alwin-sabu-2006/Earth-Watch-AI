@@ -33,7 +33,10 @@ backend/.env
 *.db
 *.sqlite
 *.sqlite3
-backend/database/*.db
+*.db-shm
+*.db-wal
+*.db-*
+backend/database/*.db*
 !backend/database/.gitkeep
 
 # Frontend build outputs

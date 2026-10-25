@@ -30,6 +30,7 @@ from app.data.solar_data import fetch_solar_ephemeris
 from app.data.wiki_data import fetch_wikipedia_knowledge
 from app.services.simulation import run_disaster_simulation
 from app.ai.analyst import process_analyst_query
+from app.ai.gemini_analyst import process_analyst_query_gemini
 from app.data.celestrak_service import celestrak_service, CELESTRAK_TARGETS
 
 router = APIRouter(prefix="/api")
@@ -39,9 +40,15 @@ router = APIRouter(prefix="/api")
 _sat_position_cache: dict = {}   # norad_id -> {pos, expires_at}
 _SAT_CACHE_TTL = 20  # seconds
 
+# Global flag to ensure database seeding runs only once
+_db_seeded = False
+
 
 # Seed data helper
 def ensure_db_seeded(db: Session):
+    global _db_seeded
+    if _db_seeded:
+        return
     existing_sat_ids = {row[0] for row in db.query(SatelliteModel.id).all()}
     now = datetime.now(timezone.utc)
     new_sats_added = False
@@ -140,6 +147,7 @@ def ensure_db_seeded(db: Session):
             db.add(l)
 
     db.commit()
+    _db_seeded = True
 
 
 @router.get("/satellites", response_model=List[SatelliteOut])
@@ -151,7 +159,13 @@ def get_satellites(
 ):
     ensure_db_seeded(db)
     now = datetime.now(timezone.utc)
-    satellites = db.query(SatelliteModel).all()
+    query = db.query(SatelliteModel)
+    if mission and mission.lower() != "all":
+        query = query.filter(SatelliteModel.mission.ilike(mission))
+    if orbit_type and orbit_type.lower() != "all":
+        query = query.filter(SatelliteModel.orbit_type.ilike(orbit_type))
+
+    satellites = query.all()
 
     results: List[SatelliteOut] = []
     for sat in satellites:
@@ -199,7 +213,7 @@ def get_satellites(
             if q_lower not in sat.name.lower() and q_lower not in (sat.country or "").lower() and q_lower not in (sat.purpose or "").lower():
                 continue
 
-        results.append(SatelliteOut.from_orm(sat))
+        results.append(SatelliteOut.model_validate(sat))
 
     return results
 
@@ -225,7 +239,7 @@ def get_satellite(id: str, db: Session = Depends(get_db)):
             sat.swath_km = sgp4_pos["swath_km"]
             sat.data_source = "CelesTrak (celestrak.org) / NORAD"
 
-    return SatelliteOut.from_orm(sat)
+    return SatelliteOut.model_validate(sat)
 
 
 @router.get("/satellites/near/{latitude}/{longitude}", response_model=List[EventSatelliteOut])
@@ -294,7 +308,7 @@ def get_events(
         query = query.filter(DisasterEventModel.status == status)
 
     events = query.order_by(DisasterEventModel.detected_at.desc()).all()
-    return [DisasterEventOut.from_orm(e) for e in events]
+    return [DisasterEventOut.model_validate(e) for e in events]
 
 
 @router.get("/events/nearby", response_model=List[DisasterEventOut])
@@ -314,7 +328,7 @@ def get_events_nearby(
             nearby.append((dist, e))
 
     nearby.sort(key=lambda x: x[0])
-    return [DisasterEventOut.from_orm(e) for _, e in nearby]
+    return [DisasterEventOut.model_validate(e) for _, e in nearby]
 
 
 @router.get("/events/{id}", response_model=DisasterEventDetail)
@@ -400,7 +414,7 @@ async def get_event_detail(id: str, db: Session = Depends(get_db)):
     # Fetch live weather at event location
     weather = await fetch_live_weather(ev.latitude, ev.longitude)
 
-    detail = DisasterEventDetail.from_orm(ev)
+    detail = DisasterEventDetail.model_validate(ev)
     detail.relevant_satellites = relevant[:5]
     detail.weather_context = weather
     return detail
@@ -638,7 +652,7 @@ async def get_location_detail(
         latitude=loc_lat,
         longitude=loc_lon,
         population=loc_pop,
-        current_events=[DisasterEventOut.from_orm(e) for e in nearby_events],
+        current_events=[DisasterEventOut.model_validate(e) for e in nearby_events],
         nearby_satellites=nearby_sats[:6],
         weather=weather,
         historical_events_count=len(nearby_events) + 3,
@@ -706,10 +720,15 @@ def simulate_disaster(req: SimulationRequest):
 
 @router.post("/ai/analyze", response_model=AIAnalyzeResponse)
 def analyze_query(req: AIAnalyzeRequest, db: Session = Depends(get_db)):
-    ensure_db_seeded(db)
-    events = [e.__dict__ for e in db.query(DisasterEventModel).filter(DisasterEventModel.is_simulated == False).all()]
-    sats = [s.__dict__ for s in db.query(SatelliteModel).all()]
-    return process_analyst_query(req, events, sats)
+    events = [
+        {k: v for k, v in e.__dict__.items() if k != "_sa_instance_state"}
+        for e in db.query(DisasterEventModel).filter(DisasterEventModel.is_simulated == False).all()
+    ]
+    sats = [
+        {k: v for k, v in s.__dict__.items() if k != "_sa_instance_state"}
+        for s in db.query(SatelliteModel).all()
+    ]
+    return process_analyst_query_gemini(req, events, sats)
 
 
 @router.get("/weather")
@@ -887,4 +906,145 @@ def terra_spot_chat(req: TerraChatRequest):
     """TERRA — Agentic Earth Intelligence AI that answers questions about a clicked spot on the globe."""
     from app.ai.terra import process_terra_chat
     return process_terra_chat(req.message, req.spot_context, req.history)
+
+
+# ─── World Monitor Core Intelligence Routes (koala73/worldmonitor Architecture) ──
+
+from app.services.world_monitor import world_monitor_service
+
+
+@router.get("/world-monitor/overview")
+def get_world_monitor_overview():
+    """Returns real-time world intelligence overview across disasters, wildfires, news, and maritime straits."""
+    return world_monitor_service.get_overview()
+
+
+@router.get("/world-monitor/live-stream")
+def get_world_monitor_live_stream():
+    """Returns unified chronological real-time stream of all multi-hazard events and intelligence signals."""
+    return world_monitor_service.get_live_stream()
+
+
+@router.get("/world-monitor/chokepoints")
+def get_world_monitor_chokepoints():
+    """Returns the 13 strategic global maritime waterways with vessel volume, transit risks, and geopolitical alerts."""
+    return world_monitor_service.get_chokepoints()
+
+
+@router.get("/world-monitor/wildfires")
+def get_world_monitor_wildfires():
+    """Returns real-time active thermal anomalies and wildfires detected by NASA FIRMS (MODIS/VIIRS)."""
+    return world_monitor_service.get_wildfires()
+
+
+@router.get("/world-monitor/news")
+def get_world_monitor_news():
+    """Returns geocoded breaking international news, conflict alerts, and humanitarian events."""
+    return world_monitor_service.get_news()
+
+
+@router.get("/world-monitor/sync")
+async def sync_world_monitor_telemetry(db: Session = Depends(get_db)):
+    """Force on-demand synchronization across USGS, GDACS, NASA FIRMS, and Global News Wire."""
+    overview = await world_monitor_service.sync_all_live_telemetry(db)
+    return {
+        "status": "success",
+        "live_events_synced": overview.get("total_live_disasters", 0),
+        "newly_added": overview.get("newly_added_to_db", 0),
+        "active_wildfires": overview.get("total_active_wildfires", 0),
+        "geopolitical_events": overview.get("total_geopolitical_events", 0),
+        "overview": overview
+    }
+
+
+class CrisisPlanRequest(BaseModel):
+    event_id: str
+    event_title: str
+    hazard_type: str
+    latitude: float
+    longitude: float
+    severity: str
+    affected_population: Optional[int] = None
+    affected_area_km2: Optional[float] = None
+    location_name: Optional[str] = None
+
+
+@router.post("/world-monitor/crisis-plan")
+def generate_crisis_response_plan(req: CrisisPlanRequest, db: Session = Depends(get_db)):
+    """Generates an automated, tactical Emergency Crisis Action Plan for real-world disaster management."""
+    now = datetime.now(timezone.utc)
+    sats = db.query(SatelliteModel).all()
+    overpasses = []
+
+    for s in sats:
+        cat_match = next((c for c in SATELLITE_CATALOG if c["id"] == s.id), None)
+        pos = compute_current_satellite_position(cat_match, now) if cat_match else {"latitude": s.latitude, "longitude": s.longitude}
+        dist = haversine_distance(req.latitude, req.longitude, pos["latitude"], pos["longitude"])
+        if dist < 4500:
+            est_minutes = int(max(4, dist / 450.0 * 6.0))
+            overpasses.append({
+                "satellite_name": s.name,
+                "mission": s.mission,
+                "distance_km": round(dist, 1),
+                "estimated_pass_minutes": est_minutes,
+                "sensor_type": s.sensor_type or "Optical/SAR Radar",
+                "swath_km": s.swath_km or 250.0
+            })
+    overpasses.sort(key=lambda x: x["distance_km"])
+
+    evac_radius_km = 15.0
+    if req.severity == "critical":
+        evac_radius_km = 60.0
+    elif req.severity == "high":
+        evac_radius_km = 30.0
+
+    pop = req.affected_population or 50000
+    shelter_capacity_needed = int(pop * 0.35)
+    clean_water_liters_day = int(pop * 15)
+
+    return {
+        "event_id": req.event_id,
+        "title": req.event_title,
+        "hazard_type": req.hazard_type,
+        "coordinates": {"latitude": req.latitude, "longitude": req.longitude},
+        "severity": req.severity,
+        "timestamp_generated": now.isoformat(),
+        "evacuation_zone": {
+            "recommended_radius_km": evac_radius_km,
+            "estimated_people_at_risk": pop,
+            "priority_level": "Tier-1 Red Immediate" if req.severity in ("critical", "high") else "Tier-2 Amber Cautionary"
+        },
+        "immediate_actions": [
+            f"Establish Incident Command Post 8 km outside the designated {evac_radius_km} km perimeter upwind/upstream.",
+            f"Activate emergency broadcast alerts across regional cellular towers covering {req.location_name or 'impact area'}.",
+            f"Pre-position search & rescue teams with amphibious and high-clearance assets.",
+            f"Deploy temporary satellite terminals (Starlink/Inmarsat) to counter telecom blackout."
+        ],
+        "humanitarian_logistics": {
+            "emergency_shelter_spaces": shelter_capacity_needed,
+            "clean_water_daily_liters": clean_water_liters_day,
+            "medical_triage_units_recommended": max(2, int(pop / 15000)),
+            "power_backup_diesel_kva": max(250, int(pop / 200))
+        },
+        "space_reconnaissance_window": overpasses[:4],
+        "phases": [
+            {
+                "phase": "Phase 1: Life Safety & Containment (0–6 Hours)",
+                "focus": "Evacuation corridor clearance, rapid victim location, hazard perimeter isolation."
+            },
+            {
+                "phase": "Phase 2: SAR & Overhead Recon (6–24 Hours)",
+                "focus": "Drone survey, satellite SAR flood/damage mapping, urban search & rescue deployment."
+            },
+            {
+                "phase": "Phase 3: Stabilization & Triage (24–72 Hours)",
+                "focus": "Field hospital ops, clean water distribution (15L/person/day), disease prevention."
+            },
+            {
+                "phase": "Phase 4: Critical Infrastructure Recovery (72+ Hours)",
+                "focus": "Power grid reconnection, road clearing, bridge structural integrity scans."
+            }
+        ]
+    }
+
 

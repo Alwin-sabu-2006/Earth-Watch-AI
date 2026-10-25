@@ -1,7 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as Cesium from 'cesium';
-import { DisasterEvent, Satellite, SimulationResult, EventSatelliteRel, SpotInspectionData } from '../../types';
+import {
+  DisasterEvent,
+  Satellite,
+  SimulationResult,
+  EventSatelliteRel,
+  SpotInspectionData,
+  ActiveWildfire,
+  GeopoliticalNews,
+  MaritimeChokepoint
+} from '../../types';
 import { api } from '../../services/api';
+import { getHazardLifecycleInfo } from '../../data/hazardLifecycle';
 import {
   RotateCcw,
   ZoomIn,
@@ -22,6 +32,9 @@ import {
 interface GlobeViewerProps {
   events: DisasterEvent[];
   satellites: Satellite[];
+  wildfires?: ActiveWildfire[];
+  newsItems?: GeopoliticalNews[];
+  chokepoints?: MaritimeChokepoint[];
   selectedEvent: DisasterEvent | null;
   selectedSatellite: Satellite | null;
   inspectedSpot?: SpotInspectionData | null;
@@ -30,6 +43,12 @@ interface GlobeViewerProps {
   showDisasters: boolean;
   showOrbits: boolean;
   showLabels: boolean;
+  showWildfires?: boolean;
+  showNews?: boolean;
+  showChokepoints?: boolean;
+  showSeaRoutes?: boolean;
+  showAirRoutes?: boolean;
+  showSatellitePoints?: boolean;
   flyToTarget?: { lat: number; lon: number; altitude?: number; id: number } | null;
   onSelectEvent: (event: DisasterEvent | null) => void;
   onSelectSatellite: (satellite: Satellite | null) => void;
@@ -40,6 +59,9 @@ interface GlobeViewerProps {
 export const GlobeViewer: React.FC<GlobeViewerProps> = ({
   events,
   satellites,
+  wildfires = [],
+  newsItems = [],
+  chokepoints = [],
   selectedEvent,
   selectedSatellite,
   inspectedSpot,
@@ -48,6 +70,9 @@ export const GlobeViewer: React.FC<GlobeViewerProps> = ({
   showDisasters,
   showOrbits,
   showLabels,
+  showWildfires = true,
+  showNews = true,
+  showChokepoints = true,
   flyToTarget,
   onSelectEvent,
   onSelectSatellite,
@@ -114,9 +139,14 @@ export const GlobeViewer: React.FC<GlobeViewerProps> = ({
       destination: Cesium.Cartesian3.fromDegrees(
         flyToTarget.lon,
         flyToTarget.lat,
-        flyToTarget.altitude || 350000
+        flyToTarget.altitude || 280000
       ),
-      duration: 1.6,
+      orientation: {
+        heading: Cesium.Math.toRadians(0),
+        pitch: Cesium.Math.toRadians(-55),
+        roll: 0.0,
+      },
+      duration: 1.8,
     });
   }, [flyToTarget]);
 
@@ -147,50 +177,34 @@ export const GlobeViewer: React.FC<GlobeViewerProps> = ({
       };
     }
 
-    // High-definition Google Maps Hybrid Base Imagery (Satellite + City & Place Names)
-    try {
-      const googleHybridProvider = new Cesium.UrlTemplateImageryProvider({
-        url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-        subdomains: ['0', '1', '2', '3'],
-        maximumLevel: 20,
-        credit: new Cesium.Credit('Google Maps', false),
-      });
-      viewer.imageryLayers.addImageryProvider(googleHybridProvider);
-    } catch {
-      // Fallback to ArcGIS World Imagery if custom URL template encounters sandbox restriction
-      Cesium.ArcGisMapServerImageryProvider.fromUrl(
-        'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer',
-        { enablePickFeatures: false }
-      ).then((provider) => {
-        if (viewer && !viewer.isDestroyed()) {
-          viewer.imageryLayers.addImageryProvider(provider);
-        }
-      }).catch(() => {});
-    }
+    // Photorealistic Satellite Base Imagery (Esri World Imagery — authoritative, high-res & compliant)
+    Cesium.ArcGisMapServerImageryProvider.fromUrl(
+      'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer',
+      { enablePickFeatures: false }
+    ).then((provider) => {
+      if (viewer && !viewer.isDestroyed()) {
+        viewer.imageryLayers.addImageryProvider(provider);
+      }
+    }).catch(() => {
+      try {
+        const osmProvider = new Cesium.OpenStreetMapImageryProvider({
+          url: 'https://tile.openstreetmap.org/'
+        });
+        viewer.imageryLayers.addImageryProvider(osmProvider);
+      } catch {}
+    });
 
-    // High-contrast Google Maps Place Labels, Roads & Boundaries Reference Layer
-    try {
-      const googleLabelsProvider = new Cesium.UrlTemplateImageryProvider({
-        url: 'https://mt{s}.google.com/vt/lyrs=h&x={x}&y={y}&z={z}',
-        subdomains: ['0', '1', '2', '3'],
-        maximumLevel: 20,
-        credit: new Cesium.Credit('Google Maps Places', false),
-      });
-      const labelsLayer = viewer.imageryLayers.addImageryProvider(googleLabelsProvider);
-      labelsLayer.show = showLabels;
-      labelsLayerRef.current = labelsLayer;
-    } catch {
-      Cesium.ArcGisMapServerImageryProvider.fromUrl(
-        'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer',
-        { enablePickFeatures: false }
-      ).then((labelsProvider) => {
-        if (viewer && !viewer.isDestroyed()) {
-          const layer = viewer.imageryLayers.addImageryProvider(labelsProvider);
-          layer.show = showLabels;
-          labelsLayerRef.current = layer;
-        }
-      }).catch(() => {});
-    }
+    // Reference Boundaries & Places Layer (Esri Reference Overlay)
+    Cesium.ArcGisMapServerImageryProvider.fromUrl(
+      'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer',
+      { enablePickFeatures: false }
+    ).then((labelsProvider) => {
+      if (viewer && !viewer.isDestroyed()) {
+        const layer = viewer.imageryLayers.addImageryProvider(labelsProvider);
+        layer.show = showLabels;
+        labelsLayerRef.current = layer;
+      }
+    }).catch(() => {});
 
     // High-DPI physical resolution rendering for razor-sharp visual clarity
     viewer.resolutionScale = Math.min(window.devicePixelRatio || 1.0, 2.0);
@@ -253,6 +267,21 @@ export const GlobeViewer: React.FC<GlobeViewerProps> = ({
         } else if (entity._earthWatchType === 'satellite') {
           onSelectSatelliteRef.current(entity._satelliteData);
           onSelectEventRef.current(null);
+          return;
+        } else if (entity._earthWatchType === 'wildfire') {
+          if (onInspectSpotRef.current) {
+            onInspectSpotRef.current(entity._fireData.latitude, entity._fireData.longitude);
+          }
+          return;
+        } else if (entity._earthWatchType === 'news') {
+          if (onInspectSpotRef.current) {
+            onInspectSpotRef.current(entity._newsData.latitude, entity._newsData.longitude);
+          }
+          return;
+        } else if (entity._earthWatchType === 'chokepoint') {
+          if (onInspectSpotRef.current) {
+            onInspectSpotRef.current(entity._chokepointData.latitude, entity._chokepointData.longitude);
+          }
           return;
         }
       }
@@ -461,24 +490,78 @@ export const GlobeViewer: React.FC<GlobeViewerProps> = ({
           },
         });
 
-        // 2. High-Performance Hardware-Accelerated Radar Pulse (runs 100% on GPU, 0 CPU overhead)
-        viewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(ev.longitude, ev.latitude, 20),
-          point: {
-            pixelSize: new Cesium.CallbackProperty(() => {
-              const sec = (Date.now() + animOffset) / 1000.0;
-              const pulse = (Math.sin(sec * 3.5) + 1.0) / 2.0;
-              return 16 + pulse * 22;
-            }, false),
-            color: new Cesium.CallbackProperty(() => {
-              const sec = (Date.now() + animOffset) / 1000.0;
-              const pulse = (Math.sin(sec * 3.5) + 1.0) / 2.0;
-              return color.withAlpha((1.0 - pulse) * 0.5);
-            }, false),
-            outlineColor: Cesium.Color.WHITE.withAlpha(0.7),
-            outlineWidth: 1.0,
-          },
-        });
+        // 2. Hardware-efficient radar pulse for selected or critical hazards
+        if (isSelected || ev.severity === 'critical') {
+          viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(ev.longitude, ev.latitude, 20),
+            point: {
+              pixelSize: new Cesium.CallbackProperty(() => {
+                const sec = (Date.now() + animOffset) / 1000.0;
+                const pulse = (Math.sin(sec * 3.5) + 1.0) / 2.0;
+                return 16 + pulse * 22;
+              }, false),
+              color: new Cesium.CallbackProperty(() => {
+                const sec = (Date.now() + animOffset) / 1000.0;
+                const pulse = (Math.sin(sec * 3.5) + 1.0) / 2.0;
+                return color.withAlpha((1.0 - pulse) * 0.5);
+              }, false),
+              outlineColor: Cesium.Color.WHITE.withAlpha(0.7),
+              outlineWidth: 1.0,
+            },
+          });
+        }
+
+        // 3. Exact Site Targeted Reconnaissance Reticle & Laser Column (When event is selected in Hazard Registry)
+        if (isSelected) {
+          // Concentric targeting crosshair ring
+          viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(ev.longitude, ev.latitude, 0),
+            ellipse: {
+              semiMajorAxis: radiusMeters * 1.6,
+              semiMinorAxis: radiusMeters * 1.599,
+              height: 0,
+              material: color.withAlpha(0.12),
+              outline: true,
+              outlineColor: Cesium.Color.WHITE.withAlpha(0.9),
+              outlineWidth: 2,
+            },
+          });
+
+          // High-Intensity Orbital Laser Column projecting down to exact ground epicenter
+          const groundPos = Cesium.Cartesian3.fromDegrees(ev.longitude, ev.latitude, 0);
+          const skyPos = Cesium.Cartesian3.fromDegrees(ev.longitude, ev.latitude, 450000);
+          viewer.entities.add({
+            polyline: {
+              positions: [groundPos, skyPos],
+              width: 4.0,
+              material: new Cesium.PolylineGlowMaterialProperty({
+                glowPower: 0.45,
+                taperPower: 0.8,
+                color: color,
+              }),
+            },
+          });
+
+          // Exact Site HUD Label with Recency & Operational Stage
+          const lifecycle = getHazardLifecycleInfo(ev);
+          viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(ev.longitude, ev.latitude, 120),
+            label: {
+              text: `🎯 INCIDENT SITE: ${ev.title.toUpperCase()}\n🕒 RECORDED: ${lifecycle.shortTimeAgo.toUpperCase()} • ${lifecycle.operationalBadge}\n📍 ${Math.abs(ev.latitude).toFixed(3)}°${ev.latitude >= 0 ? 'N' : 'S'}, ${Math.abs(ev.longitude).toFixed(3)}°${ev.longitude >= 0 ? 'E' : 'W'} • SEV: ${ev.severity.toUpperCase()}`,
+              font: 'bold 12px monospace',
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: Cesium.Color.fromCssColorString('#020617'),
+              outlineWidth: 4,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+              pixelOffset: new Cesium.Cartesian2(0, -32),
+              showBackground: true,
+              backgroundColor: Cesium.Color.fromCssColorString('#020617').withAlpha(0.88),
+              backgroundPadding: new Cesium.Cartesian2(8, 5),
+              distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 4.0e6),
+            },
+          });
+        }
       });
     }
 
@@ -520,18 +603,20 @@ export const GlobeViewer: React.FC<GlobeViewerProps> = ({
           },
         });
 
-        // Pulsing radar transponder signal aura around satellite
-        viewer.entities.add({
-          position: satPos,
-          point: {
-            pixelSize: isSelected ? 24 : 14,
-            color: new Cesium.CallbackProperty(() => {
-              const sec = Date.now() / 1000.0;
-              const pulse = 0.35 + 0.65 * Math.sin(sec * 4.0);
-              return satColor.withAlpha(pulse * 0.45);
-            }, false),
-          },
-        });
+        // Pulsing radar transponder signal aura around selected or priority satellites
+        if (isSelected || sat.mission === 'Disaster monitoring') {
+          viewer.entities.add({
+            position: satPos,
+            point: {
+              pixelSize: isSelected ? 24 : 14,
+              color: new Cesium.CallbackProperty(() => {
+                const sec = Date.now() / 1000.0;
+                const pulse = 0.35 + 0.65 * Math.sin(sec * 4.0);
+                return satColor.withAlpha(pulse * 0.45);
+              }, false),
+            },
+          });
+        }
 
         (satEntity as any)._earthWatchType = 'satellite';
         (satEntity as any)._satelliteData = sat;
@@ -855,10 +940,165 @@ export const GlobeViewer: React.FC<GlobeViewerProps> = ({
         },
       });
     }
+
+    // 6. Render Active Wildfires (NASA FIRMS MODIS / VIIRS)
+    if (showWildfires && wildfires && wildfires.length > 0) {
+      wildfires.forEach((fire) => {
+        const fireColor = fire.severity === 'critical'
+          ? Cesium.Color.fromCssColorString('#ef4444')
+          : fire.severity === 'high'
+          ? Cesium.Color.fromCssColorString('#f97316')
+          : Cesium.Color.fromCssColorString('#eab308');
+
+        const fireEntity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(fire.longitude, fire.latitude, 50),
+          point: {
+            pixelSize: fire.severity === 'critical' ? 13 : 9,
+            color: fireColor,
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 1.5,
+            scaleByDistance: new Cesium.NearFarScalar(1.5e2, 1.2, 8.0e6, 0.6),
+          },
+          label: {
+            text: `🔥 ${fire.frp_mw.toFixed(0)}MW`,
+            font: '10px monospace',
+            fillColor: Cesium.Color.fromCssColorString('#fed7aa'),
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2.5,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: new Cesium.Cartesian2(0, -10),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 4.0e6),
+          },
+        });
+
+        (fireEntity as any)._earthWatchType = 'wildfire';
+        (fireEntity as any)._fireData = fire;
+
+        // Thermal anomaly emission halo
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(fire.longitude, fire.latitude, 0),
+          ellipse: {
+            semiMajorAxis: Math.max(15000, fire.frp_mw * 400),
+            semiMinorAxis: Math.max(15000, fire.frp_mw * 400) * 0.999,
+            height: 0,
+            material: fireColor.withAlpha(0.2),
+            outline: true,
+            outlineColor: fireColor.withAlpha(0.6),
+            outlineWidth: 1.0,
+          },
+        });
+      });
+    }
+
+    // 7. Render Geopolitical & Breaking News Markers (OSINT Wire)
+    if (showNews && newsItems && newsItems.length > 0) {
+      newsItems.forEach((news) => {
+        const newsColor = news.category === 'conflict'
+          ? Cesium.Color.fromCssColorString('#f43f5e')
+          : news.category === 'disaster'
+          ? Cesium.Color.fromCssColorString('#f59e0b')
+          : Cesium.Color.fromCssColorString('#818cf8');
+
+        const newsEntity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(news.longitude, news.latitude, 80),
+          point: {
+            pixelSize: 11,
+            color: newsColor,
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+            scaleByDistance: new Cesium.NearFarScalar(1.5e2, 1.2, 9.0e6, 0.7),
+          },
+          label: {
+            text: `📰 ${news.location_name}: ${news.title.slice(0, 22)}...`,
+            font: '10px system-ui',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2.5,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: new Cesium.Cartesian2(0, -12),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 6.0e6),
+          },
+        });
+
+        (newsEntity as any)._earthWatchType = 'news';
+        (newsEntity as any)._newsData = news;
+      });
+    }
+
+    // 8. Render Strategic Maritime Chokepoints (13 Critical Waterways)
+    if (showChokepoints && chokepoints && chokepoints.length > 0) {
+      chokepoints.forEach((c) => {
+        const chokeColor = c.threat_level === 'critical'
+          ? Cesium.Color.fromCssColorString('#f43f5e')
+          : c.threat_level === 'high'
+          ? Cesium.Color.fromCssColorString('#f97316')
+          : c.threat_level === 'moderate'
+          ? Cesium.Color.fromCssColorString('#38bdf8')
+          : Cesium.Color.fromCssColorString('#10b981');
+
+        const chokeEntity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(c.longitude, c.latitude, 60),
+          point: {
+            pixelSize: 12,
+            color: chokeColor,
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+            scaleByDistance: new Cesium.NearFarScalar(1.5e2, 1.2, 1.5e7, 0.8),
+          },
+          label: {
+            text: `⚓ ${c.name} (${c.oil_transit_mbpd} mb/d)`,
+            font: 'bold 11px system-ui',
+            fillColor: Cesium.Color.fromCssColorString('#a5f3fc'),
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: new Cesium.Cartesian2(0, -14),
+            distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 1.2e7),
+          },
+        });
+
+        (chokeEntity as any)._earthWatchType = 'chokepoint';
+        (chokeEntity as any)._chokepointData = c;
+
+        // Nautical transit flow perimeter ring
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(c.longitude, c.latitude, 0),
+          ellipse: {
+            semiMajorAxis: 65000,
+            semiMinorAxis: 64999,
+            height: 0,
+            material: chokeColor.withAlpha(0.18),
+            outline: true,
+            outlineColor: chokeColor.withAlpha(0.75),
+            outlineWidth: 1.5,
+          },
+        });
+      });
+    }
     } catch (err) {
       console.warn('Cesium entity render error:', err);
     }
-  }, [events, satellites, selectedEvent, selectedSatellite, inspectedSpot, simulationResult, showSatellites, showDisasters, showOrbits, sgp4Points]);
+  }, [
+    events,
+    satellites,
+    wildfires,
+    newsItems,
+    chokepoints,
+    selectedEvent,
+    selectedSatellite,
+    inspectedSpot,
+    simulationResult,
+    showSatellites,
+    showDisasters,
+    showOrbits,
+    showWildfires,
+    showNews,
+    showChokepoints,
+    sgp4Points
+  ]);
 
   // Smooth camera fly-to when selectedEvent or selectedSatellite changes
   useEffect(() => {
@@ -866,13 +1106,21 @@ export const GlobeViewer: React.FC<GlobeViewerProps> = ({
     if (!viewer || viewer.isDestroyed()) return;
 
     if (selectedEvent) {
+      // Calculate realistic close-up site inspection altitude based on event footprint
+      const radiusKm = Math.sqrt(selectedEvent.affected_area_km2 || 400);
+      const siteAltitude = Math.max(160000, Math.min(380000, radiusKm * 6500));
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(
           selectedEvent.longitude,
           selectedEvent.latitude,
-          1200000 // 1,200 km altitude view
+          siteAltitude
         ),
-        duration: 1.8,
+        orientation: {
+          heading: Cesium.Math.toRadians(0),
+          pitch: Cesium.Math.toRadians(-55), // 3D perspective showing terrain relief, cities & coastline
+          roll: 0.0,
+        },
+        duration: 2.0,
       });
     } else if (selectedSatellite) {
       const satAlt = (selectedSatellite.altitude || 700) * 1000;

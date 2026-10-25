@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class SatelliteBase(BaseModel):
@@ -32,9 +32,7 @@ class SatelliteBase(BaseModel):
 class SatelliteOut(SatelliteBase):
     last_updated: Optional[datetime] = None
     next_pass_prediction: Optional[Dict[str, Any]] = None
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EventSatelliteOut(BaseModel):
@@ -50,9 +48,7 @@ class EventSatelliteOut(BaseModel):
     sensor_type: Optional[str] = "Multispectral Observation"
     swath_km: Optional[float] = 250.0
     next_pass_in_minutes: Optional[int] = None
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DisasterEventBase(BaseModel):
@@ -74,9 +70,7 @@ class DisasterEventBase(BaseModel):
 
 class DisasterEventOut(DisasterEventBase):
     detected_at: datetime
-
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DisasterEventDetail(DisasterEventOut):
@@ -95,8 +89,7 @@ class LocationBase(BaseModel):
 
 
 class LocationOut(LocationBase):
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class LocationDetail(LocationOut):

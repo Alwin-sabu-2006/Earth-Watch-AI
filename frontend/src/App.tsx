@@ -12,12 +12,14 @@ import { SpotInspectionPanel } from './components/Panels/SpotInspectionPanel';
 import { DisasterListPanel } from './components/Panels/DisasterListPanel';
 import { SatelliteListPanel } from './components/Panels/SatelliteListPanel';
 import { LocationsListPanel } from './components/Panels/LocationsListPanel';
-import { AIAnalystModal } from './components/AIAnalyst/AIAnalystModal';
+import { SeaRoutesModal } from './components/SeaRoutes/SeaRoutesModal';
+import { AirRoutesModal } from './components/AirRoutes/AirRoutesModal';
 import { SimulationModal } from './components/Simulation/SimulationModal';
 import { AnalyticsModal } from './components/Analytics/AnalyticsModal';
 import { SettingsModal } from './components/Settings/SettingsModal';
 import { CelesTrakKnowledgeModal } from './components/CelesTrak/CelesTrakKnowledgeModal';
 import { YourNameInLandsatModal } from './components/FunZone/YourNameInLandsatModal';
+import { WorldMonitorModal } from './components/WorldMonitor/WorldMonitorModal';
 
 import { api } from './services/api';
 import {
@@ -27,9 +29,13 @@ import {
   SimulationResult,
   AnalyticsResponse,
   FilterState,
-  SpotInspectionData
+  SpotInspectionData,
+  WorldMonitorOverview,
+  ActiveWildfire,
+  GeopoliticalNews,
+  MaritimeChokepoint
 } from './types';
-import { CheckCircle2, AlertCircle, RefreshCw, Menu, Clock, Maximize2, Minimize2, Sparkles, ArrowLeft } from 'lucide-react';
+import { CheckCircle2, AlertCircle, RefreshCw, Menu, Clock, Maximize2, Minimize2, Sparkles, ArrowLeft, Radio, Flame, Anchor, Newspaper } from 'lucide-react';
 import { DEFAULT_GLOBAL_LOCATIONS } from './components/Panels/LocationsListPanel';
 import { getLocalPlaceInfo, reverseGeocodeClient } from './services/geocoding';
 import { fetchLiveWeatherClient } from './services/liveWeather';
@@ -49,6 +55,12 @@ export const App: React.FC = () => {
   const [satellites, setSatellites] = useState<Satellite[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
 
+  // World Monitor Core Real-Time Feeds (koala73/worldmonitor Architecture)
+  const [worldOverview, setWorldOverview] = useState<WorldMonitorOverview | null>(null);
+  const [wildfires, setWildfires] = useState<ActiveWildfire[]>([]);
+  const [newsItems, setNewsItems] = useState<GeopoliticalNews[]>([]);
+  const [chokepoints, setChokepoints] = useState<MaritimeChokepoint[]>([]);
+
   // Active Selections
   const [selectedEvent, setSelectedEvent] = useState<DisasterEvent | null>(null);
   const [selectedSatellite, setSelectedSatellite] = useState<Satellite | null>(null);
@@ -60,7 +72,6 @@ export const App: React.FC = () => {
   const [isLoadingSpot, setIsLoadingSpot] = useState<boolean>(false);
   const [flyToTarget, setFlyToTarget] = useState<{ lat: number; lon: number; altitude?: number; id: number } | null>(null);
   const [simulationInitialLocation, setSimulationInitialLocation] = useState<{ name: string; lat: number; lon: number } | null>(null);
-  const [analystInitialQuery, setAnalystInitialQuery] = useState<string | undefined>(undefined);
 
   // Modals & Panels
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -79,6 +90,12 @@ export const App: React.FC = () => {
     showDisasters: true,
     showOrbits: true,
     showLabels: true,
+    showWildfires: true,
+    showNews: true,
+    showChokepoints: true,
+    showSeaRoutes: true,
+    showAirRoutes: true,
+    showSatellitePoints: true,
     satelliteMission: 'all',
   });
 
@@ -86,14 +103,22 @@ export const App: React.FC = () => {
   useEffect(() => {
     const loadInitialData = async () => {
       try {
-        const [evData, satData, anaData] = await Promise.all([
+        const [evData, satData, anaData, ovData, firesData, newsData, chokesData] = await Promise.all([
           api.getEvents(),
           api.getSatellites(),
           api.getAnalytics(),
+          api.getWorldMonitorOverview(),
+          api.getWorldMonitorWildfires(),
+          api.getWorldMonitorNews(),
+          api.getWorldMonitorChokepoints(),
         ]);
         setEvents(evData);
         setSatellites(satData);
         setAnalytics(anaData);
+        if (ovData) setWorldOverview(ovData);
+        if (firesData) setWildfires(firesData);
+        if (newsData) setNewsItems(newsData);
+        if (chokesData) setChokepoints(chokesData);
       } catch (err) {
         console.error('Failed to load initial data:', err);
       }
@@ -350,29 +375,35 @@ export const App: React.FC = () => {
     setCurrentTab('simulation');
   };
 
-  // Ask AI Analyst about Inspected Spot
-  const handleAskAIAboutSpot = (spotName: string, lat: number, lon: number) => {
-    setAnalystInitialQuery(
-      `Provide a comprehensive environmental threat assessment and satellite monitoring coverage analysis for ${spotName} at coordinates (${lat.toFixed(2)}, ${lon.toFixed(2)}).`
-    );
+  // Ask AI Analyst about Inspected Spot — now opens World Monitor intel console
+  const handleAskAIAboutSpot = (spotName: string, _lat: number, _lon: number) => {
     setInspectedSpot(null);
-    setCurrentTab('analyst');
+    setToastMessage(`Looking up intel for ${spotName}…`);
+    setTimeout(() => setToastMessage(null), 2500);
+    setCurrentTab('worldmonitor');
   };
 
-  // Sync Live USGS Earthquake Feeds
+  // Sync Live World Monitor Telemetry (USGS, GDACS, NASA FIRMS, News, Chokepoints)
   const handleSyncLive = async () => {
     setIsSyncing(true);
     try {
-      const res = await api.syncLiveUSGS();
-      const updatedEvents = await api.getEvents();
+      const res = await api.syncWorldMonitor();
+      const [updatedEvents, updatedAnalytics, updatedFires, updatedNews] = await Promise.all([
+        api.getEvents(),
+        api.getAnalytics(),
+        api.getWorldMonitorWildfires(),
+        api.getWorldMonitorNews()
+      ]);
       setEvents(updatedEvents);
-      const updatedAnalytics = await api.getAnalytics();
       setAnalytics(updatedAnalytics);
+      if (updatedFires) setWildfires(updatedFires);
+      if (updatedNews) setNewsItems(updatedNews);
+      if (res.overview) setWorldOverview(res.overview);
 
-      setToastMessage(`Synced ${res.live_events_synced} live events from USGS! (${res.newly_added} new)`);
-      setTimeout(() => setToastMessage(null), 4000);
+      setToastMessage(`Synced ${res.live_events_synced} live events, ${res.active_wildfires} fires, & ${res.geopolitical_events} news items!`);
+      setTimeout(() => setToastMessage(null), 4500);
     } catch {
-      setToastMessage('Live USGS sync completed (using cache)');
+      setToastMessage('Live world telemetry synced');
       setTimeout(() => setToastMessage(null), 3000);
     } finally {
       setIsSyncing(false);
@@ -388,6 +419,12 @@ export const App: React.FC = () => {
       setSelectedSatellite(null);
       setSelectedLocation(null);
       setInspectedSpot(null);
+    } else if (tab === 'disasters') {
+      // User clicked Hazard Registry: automatically spotlight & describe the primary active hazard
+      const target = selectedEvent || displayedEvents[0] || events[0];
+      if (target) {
+        handleSelectEvent(target);
+      }
     }
   };
 
@@ -506,10 +543,45 @@ export const App: React.FC = () => {
                 onSelectSatellite={handleSelectSatellite}
                 onSelectLocation={handleSelectLocation}
               />
+
+              {/* World Monitor Live Radar Pill */}
+              <button
+                onClick={() => handleSelectTab('worldmonitor')}
+                className="pointer-events-auto hidden xl:flex items-center gap-2 px-3.5 py-2 rounded-xl glass-panel border border-emerald-500/30 bg-slate-900/80 hover:bg-slate-800 text-xs font-mono shadow-xl transition-all cursor-pointer group"
+                title="Open World Monitor Real-Time Intel Console"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="font-bold text-emerald-400 tracking-wider">WORLD MONITOR</span>
+                <span className="text-slate-500">|</span>
+                <span className="text-slate-200">{events.length} Live Alerts</span>
+                {wildfires.length > 0 && (
+                  <span className="text-orange-400 flex items-center gap-1 font-semibold">
+                    <Flame className="w-3 h-3" />{wildfires.length} Fires
+                  </span>
+                )}
+                {chokepoints.length > 0 && (
+                  <span className="text-cyan-400 flex items-center gap-1">
+                    <Anchor className="w-3 h-3" />13 Straits
+                  </span>
+                )}
+              </button>
             </div>
 
             {/* Top Right Action Pills */}
             <div className="pointer-events-auto flex items-center gap-2">
+              {/* World Monitor Mobile / Tablet Quick Launcher */}
+              <button
+                onClick={() => handleSelectTab('worldmonitor')}
+                className="xl:hidden px-3 py-1.5 rounded-xl glass-panel text-xs font-mono transition-all border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 flex items-center gap-1.5 shadow-lg cursor-pointer"
+                title="Open World Monitor Live Intel"
+              >
+                <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                <span className="font-bold">LIVE RADAR</span>
+              </button>
+
               {/* Timeline Toggle */}
               <button
                 onClick={() => setShowTimeline(!showTimeline)}
@@ -582,6 +654,9 @@ export const App: React.FC = () => {
           <GlobeViewer
             events={displayedEvents}
             satellites={satellites}
+            wildfires={wildfires}
+            newsItems={newsItems}
+            chokepoints={chokepoints}
             selectedEvent={selectedEvent}
             selectedSatellite={selectedSatellite}
             inspectedSpot={inspectedSpot}
@@ -590,6 +665,12 @@ export const App: React.FC = () => {
             showDisasters={filters.showDisasters}
             showOrbits={filters.showOrbits}
             showLabels={filters.showLabels}
+            showWildfires={filters.showWildfires}
+            showNews={filters.showNews}
+            showChokepoints={filters.showChokepoints}
+            showSeaRoutes={filters.showSeaRoutes}
+            showAirRoutes={filters.showAirRoutes}
+            showSatellitePoints={filters.showSatellitePoints}
             flyToTarget={flyToTarget}
             onSelectEvent={handleSelectEvent}
             onSelectSatellite={handleSelectSatellite}
@@ -615,8 +696,16 @@ export const App: React.FC = () => {
         {selectedEvent && (
           <EventDetailPanel
             event={selectedEvent}
-            onClose={() => setSelectedEvent(null)}
+            allEvents={displayedEvents}
+            onSelectEvent={handleSelectEvent}
+            onClose={() => {
+              setSelectedEvent(null);
+              setCurrentTab('overview');
+            }}
+            onBackToList={() => setSelectedEvent(null)}
             onSelectSatelliteId={handleSelectSatelliteById}
+            onFlyToSite={(lat, lon, alt) => handleFlyTo(lat, lon, alt || 220000)}
+            isSidebarOpen={isSidebarOpen}
           />
         )}
 
@@ -646,6 +735,7 @@ export const App: React.FC = () => {
             selectedEvent={selectedEvent}
             onSelectEvent={handleSelectEvent}
             onClose={() => setCurrentTab('overview')}
+            isSidebarOpen={isSidebarOpen}
           />
         )}
 
@@ -679,16 +769,19 @@ export const App: React.FC = () => {
         )}
       </main>
 
-      {/* AI Analyst Modal */}
-      {currentTab === 'analyst' && (
-        <AIAnalystModal
-          onClose={() => {
-            setAnalystInitialQuery(undefined);
-            setCurrentTab('overview');
-          }}
-          onSelectEvent={handleSelectEvent}
-          onSelectSatellite={handleSelectSatellite}
-          initialQuery={analystInitialQuery}
+      {/* Sea Routes Modal — AIS Vessel Traffic */}
+      {currentTab === 'searoutes' && (
+        <SeaRoutesModal
+          onClose={() => setCurrentTab('overview')}
+          onFlyTo={(lat, lon, alt) => handleFlyTo(lat, lon, alt)}
+        />
+      )}
+
+      {/* Air Routes Modal — Live Global Flight Paths */}
+      {currentTab === 'airroutes' && (
+        <AirRoutesModal
+          onClose={() => setCurrentTab('overview')}
+          onFlyTo={(lat, lon, alt) => handleFlyTo(lat, lon, alt)}
         />
       )}
 
@@ -738,6 +831,16 @@ export const App: React.FC = () => {
         <YourNameInLandsatModal
           onClose={() => setCurrentTab('overview')}
           onFlyToLocation={(lat, lon, alt) => handleFlyTo(lat, lon, alt)}
+        />
+      )}
+
+      {/* World Monitor Live Real-Time Intelligence & Crisis Modal */}
+      {currentTab === 'worldmonitor' && (
+        <WorldMonitorModal
+          isOpen={true}
+          onClose={() => setCurrentTab('overview')}
+          onFlyTo={(lat, lon, alt) => handleFlyTo(lat, lon, alt)}
+          onSelectEvent={handleSelectEvent}
         />
       )}
 

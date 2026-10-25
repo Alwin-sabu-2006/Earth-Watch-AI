@@ -9,14 +9,20 @@ import {
   AIAnalyzeResult,
   AnalyticsResponse,
   WeatherData,
-  SpotInspectionData
+  SpotInspectionData,
+  WorldMonitorOverview,
+  WorldMonitorStreamItem,
+  MaritimeChokepoint,
+  ActiveWildfire,
+  GeopoliticalNews,
+  CrisisResponsePlan
 } from '../types';
 
-const API_BASE = '/api';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '');
 
 const client = axios.create({
   baseURL: API_BASE,
-  timeout: 12000, // 12s — accommodates parallel geocode+weather+SGP4 on inspect
+  timeout: 15000, // 15s — accommodates parallel geocode+weather+SGP4 on inspect
 });
 
 export const api = {
@@ -219,6 +225,81 @@ export const api = {
       history,
     });
     return res.data;
+  },
+
+  // ── World Monitor Core Real-Time Intelligence (koala73/worldmonitor Architecture) ──
+
+  async getWorldMonitorOverview(): Promise<WorldMonitorOverview | null> {
+    try {
+      const res = await client.get<WorldMonitorOverview>('/world-monitor/overview');
+      return res.data;
+    } catch {
+      return null;
+    }
+  },
+
+  async getWorldMonitorLiveStream(): Promise<WorldMonitorStreamItem[]> {
+    try {
+      const res = await client.get<WorldMonitorStreamItem[]>('/world-monitor/live-stream');
+      return res.data;
+    } catch {
+      return [];
+    }
+  },
+
+  async getWorldMonitorChokepoints(): Promise<MaritimeChokepoint[]> {
+    try {
+      const res = await client.get<MaritimeChokepoint[]>('/world-monitor/chokepoints');
+      return res.data;
+    } catch {
+      return [];
+    }
+  },
+
+  async getWorldMonitorWildfires(): Promise<ActiveWildfire[]> {
+    try {
+      const res = await client.get<ActiveWildfire[]>('/world-monitor/wildfires');
+      return res.data;
+    } catch {
+      return [];
+    }
+  },
+
+  async getWorldMonitorNews(): Promise<GeopoliticalNews[]> {
+    try {
+      const res = await client.get<GeopoliticalNews[]>('/world-monitor/news');
+      return res.data;
+    } catch {
+      return [];
+    }
+  },
+
+  async syncWorldMonitor(): Promise<{
+    status: string;
+    live_events_synced: number;
+    newly_added: number;
+    active_wildfires: number;
+    geopolitical_events: number;
+    overview: WorldMonitorOverview;
+  }> {
+    const res = await client.get('/world-monitor/sync');
+    return res.data;
+  },
+
+  async generateCrisisPlan(payload: {
+    event_id: string;
+    event_title: string;
+    hazard_type: string;
+    latitude: number;
+    longitude: number;
+    severity: string;
+    affected_population?: number;
+    affected_area_km2?: number;
+    location_name?: string;
+  }): Promise<CrisisResponsePlan> {
+    const res = await client.post<CrisisResponsePlan>('/world-monitor/crisis-plan', payload);
+    return res.data;
   }
 };
+
 

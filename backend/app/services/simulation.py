@@ -36,8 +36,19 @@ def run_disaster_simulation(req: SimulationRequest) -> SimulationResponse:
     lat_step_km = req.speed_kmh * 8 * math.cos(rad)
     lon_step_km = req.speed_kmh * 8 * math.sin(rad)
 
-    # Base density heuristic per sq km
-    pop_density = 180 + (req.intensity * 95)
+    # Differentiate between oceanic / maritime zones and terrestrial population centers
+    loc_lower = (req.starting_location_name or "").lower()
+    is_oceanic = any(
+        kw in loc_lower
+        for kw in ["ocean", "sea", "bay of bengal", "gulf", "channel", "strait", "pacific", "atlantic", "indian ocean", "waters"]
+    )
+    if is_oceanic:
+        # Sparse maritime vessel traffic / platform crews
+        pop_density = max(2, int(req.intensity * 4))
+    else:
+        # Terrestrial populated land zones
+        pop_density = 180 + (req.intensity * 95)
+
     total_area = math.pi * (req.radius_km ** 2)
 
     for i in range(total_steps):

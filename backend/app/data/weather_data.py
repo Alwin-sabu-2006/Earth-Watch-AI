@@ -7,10 +7,10 @@ Free, no API key required.
 import httpx
 import time
 from typing import Dict, Any, Tuple, Optional
+from cachetools import TTLCache
 
-# In-memory weather cache (key: round(lat, 2), round(lon, 2))
-_weather_cache: Dict[tuple, Dict[str, Any]] = {}
-_CACHE_TTL = 120  # 2 minutes
+# In-memory weather cache (bounded TTL cache: max 1000 locations, 2-minute TTL)
+_weather_cache = TTLCache(maxsize=1000, ttl=120)
 
 # WMO Weather interpretation codes
 WMO_CODES = {
@@ -68,8 +68,7 @@ async def fetch_live_weather_full(
     Cached on a ~1km grid for 2 minutes to minimize latency.
     """
     cache_key = (round(latitude, 2), round(longitude, 2))
-    now = time.time()
-    if cache_key in _weather_cache and now < _weather_cache[cache_key]["expires_at"]:
+    if cache_key in _weather_cache:
         cached = _weather_cache[cache_key]
         return cached["weather"], cached["elevation"], cached["solar"]
 
@@ -161,7 +160,6 @@ async def fetch_live_weather_full(
                     "weather": weather,
                     "elevation": elevation,
                     "solar": solar,
-                    "expires_at": now + _CACHE_TTL
                 }
 
                 return weather, elevation, solar
@@ -205,7 +203,6 @@ async def fetch_live_weather_full(
                     "weather": weather,
                     "elevation": data.get("elevation"),
                     "solar": None,
-                    "expires_at": now + _CACHE_TTL
                 }
                 return weather, data.get("elevation"), None
     except Exception:

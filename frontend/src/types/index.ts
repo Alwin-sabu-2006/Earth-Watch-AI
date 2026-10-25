@@ -195,6 +195,12 @@ export interface FilterState {
   showDisasters: boolean;
   showOrbits: boolean;
   showLabels: boolean;
+  showWildfires?: boolean;
+  showNews?: boolean;
+  showChokepoints?: boolean;
+  showSeaRoutes?: boolean;
+  showAirRoutes?: boolean;
+  showSatellitePoints?: boolean;
   satelliteMission: string;
 }
 
@@ -413,6 +419,113 @@ export interface SpotInspectionData {
   } | null;
   risk_level: string;
 }
+
+// ── World Monitor Real-Time Intelligence Interfaces (koala73/worldmonitor) ──
+
+export interface WorldMonitorOverview {
+  status: string;
+  last_synced?: string;
+  total_live_disasters: number;
+  total_active_wildfires: number;
+  total_geopolitical_events: number;
+  monitored_chokepoints_count: number;
+  newly_added_to_db?: number;
+  data_sources: Record<string, string>;
+}
+
+export interface WorldMonitorStreamItem {
+  id: string;
+  category: 'disaster' | 'wildfire' | 'geopolitical' | 'maritime' | 'satellite';
+  hazard_type?: string;
+  title: string;
+  severity: 'critical' | 'high' | 'moderate' | 'low' | 'info';
+  latitude: number;
+  longitude: number;
+  location_name: string;
+  timestamp: string;
+  source: string;
+  summary: string;
+  metrics?: Record<string, any>;
+}
+
+export interface MaritimeChokepoint {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  status: string;
+  threat_level: string;
+  oil_transit_mbpd: number;
+  daily_vessels: number;
+  key_commodities: string[];
+  connected_bodies: string[];
+  littoral_states: string[];
+  strategic_importance: string;
+  incident_watch: string;
+}
+
+export interface ActiveWildfire {
+  id: string;
+  latitude: number;
+  longitude: number;
+  brightness_k: number;
+  frp_mw: number;
+  confidence: string;
+  satellite: string;
+  daynight: string;
+  detected_at: string;
+  severity: SeverityLevel;
+  title: string;
+  type: string;
+}
+
+export interface GeopoliticalNews {
+  id: string;
+  title: string;
+  source: string;
+  link: string;
+  summary: string;
+  category: string;
+  severity: SeverityLevel;
+  latitude: number;
+  longitude: number;
+  location_name: string;
+  published_at: string;
+}
+
+export interface CrisisResponsePlan {
+  event_id: string;
+  title: string;
+  hazard_type: string;
+  coordinates: { latitude: number; longitude: number };
+  severity: string;
+  timestamp_generated: string;
+  evacuation_zone: {
+    recommended_radius_km: number;
+    estimated_people_at_risk: number;
+    priority_level: string;
+  };
+  immediate_actions: string[];
+  humanitarian_logistics: {
+    emergency_shelter_spaces: number;
+    clean_water_daily_liters: number;
+    medical_triage_units_recommended: number;
+    power_backup_diesel_kva: number;
+  };
+  space_reconnaissance_window: Array<{
+    satellite_name: string;
+    mission: string;
+    distance_km: number;
+    estimated_pass_minutes: number;
+    sensor_type: string;
+    swath_km: number;
+  }>;
+  phases: Array<{
+    phase: string;
+    focus: string;
+  }>;
+}
+
 
 
 

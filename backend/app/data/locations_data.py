@@ -2,6 +2,7 @@ import os
 import httpx
 import math
 from typing import List, Dict, Any, Optional
+from cachetools import LRUCache
 
 # Enriched Seed Locations across all continents
 SEED_LOCATIONS: List[Dict[str, Any]] = [
@@ -529,8 +530,8 @@ async def geocode_query(query: str) -> List[Dict[str, Any]]:
     return combined[:10]  # Limit to 10 results
 
 
-# In-memory reverse geocode cache (key: round(lat, 3), round(lon, 3))
-_reverse_geo_cache: Dict[tuple, Dict[str, Any]] = {}
+# In-memory reverse geocode cache (bounded LRU, max 1500 locations)
+_reverse_geo_cache = LRUCache(maxsize=1500)
 
 
 async def reverse_geocode(lat: float, lon: float) -> Dict[str, Any]:

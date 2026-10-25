@@ -5,7 +5,6 @@ import {
   Satellite as SatelliteIcon,
   MapPin,
   BarChart3,
-  Bot,
   FlaskConical,
   Settings,
   Filter,
@@ -16,24 +15,31 @@ import {
   SunMedium,
   Zap,
   Activity,
-  CheckCircle2,
   RefreshCw,
   Orbit,
   PanelLeftClose,
   PanelLeftOpen,
   Sparkles,
   ArrowLeft,
+  Radio,
+  Anchor,
+  Newspaper,
+  Ship,
+  Plane,
+  Navigation,
 } from 'lucide-react';
 import { FilterState, EventType, SeverityLevel } from '../../types';
 
 export type NavTab =
   | 'overview'
+  | 'worldmonitor'
   | 'disasters'
   | 'satellites'
   | 'celestrak'
   | 'locations'
   | 'analytics'
-  | 'analyst'
+  | 'searoutes'
+  | 'airroutes'
   | 'simulation'
   | 'funzone'
   | 'settings';
@@ -110,11 +116,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="w-6 h-px bg-slate-800 my-0.5" />
 
         <button
+          onClick={() => onSelectTab('worldmonitor')}
+          className={`relative p-2.5 rounded-xl transition-all ${
+            currentTab === 'worldmonitor' ? 'bg-sky-500/25 text-sky-300 border border-sky-500/50 shadow-sky-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+          title="World Monitor — Live Global Telemetry"
+        >
+          <Radio className="w-4 h-4 text-sky-400 animate-pulse" />
+          <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-emerald-500 text-[8px] font-mono text-slate-950 font-bold">
+            LIVE
+          </span>
+        </button>
+
+        <button
           onClick={() => onSelectTab('disasters')}
           className={`relative p-2.5 rounded-xl transition-all ${
             currentTab === 'disasters' ? 'bg-rose-500/25 text-rose-300 border border-rose-500/50' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
           }`}
-          title={`Disasters Monitor (${disasterCount} Active)`}
+          title={`Recent Hazards Log (${disasterCount} Monitored)`}
         >
           <ShieldAlert className="w-4 h-4 text-rose-400" />
           <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-rose-500 text-[8px] font-mono text-white font-bold">
@@ -166,13 +185,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
 
         <button
-          onClick={() => onSelectTab('analyst')}
-          className={`p-2.5 rounded-xl transition-all ${
-            currentTab === 'analyst' ? 'bg-purple-500/25 text-purple-300 border border-purple-500/50' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          onClick={() => onSelectTab('searoutes')}
+          className={`relative p-2.5 rounded-xl transition-all ${
+            currentTab === 'searoutes' ? 'bg-teal-500/25 text-teal-300 border border-teal-500/50' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
           }`}
-          title="AI Earth Analyst"
+          title="Live Sea Routes — AIS Vessel Traffic"
         >
-          <Bot className="w-4 h-4 text-purple-400" />
+          <Ship className="w-4 h-4 text-teal-400" />
+          <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-teal-500 text-[8px] font-mono text-slate-950 font-bold">AIS</span>
+        </button>
+
+        <button
+          onClick={() => onSelectTab('airroutes')}
+          className={`relative p-2.5 rounded-xl transition-all ${
+            currentTab === 'airroutes' ? 'bg-violet-500/25 text-violet-300 border border-violet-500/50' : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+          title="Live Air Routes — Global Flight Paths"
+        >
+          <Plane className="w-4 h-4 text-violet-400" />
+          <span className="absolute -top-1 -right-1 px-1 py-0.2 rounded-full bg-violet-500 text-[8px] font-mono text-slate-950 font-bold">AIR</span>
         </button>
 
         <button
@@ -298,19 +329,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
 
         <button
+          onClick={() => onSelectTab('worldmonitor')}
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
+            currentTab === 'worldmonitor'
+              ? 'bg-sky-500/20 text-sky-300 border border-sky-400/40 shadow-sm'
+              : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <Radio className="w-4 h-4 text-sky-400 animate-pulse" />
+            <span className="font-semibold">World Monitor</span>
+          </div>
+          <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-mono font-bold">
+            LIVE
+          </span>
+        </button>
+
+        <button
           onClick={() => onSelectTab('disasters')}
           className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
             currentTab === 'disasters'
               ? 'bg-rose-500/20 text-rose-300 border border-rose-400/40 shadow-sm'
               : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
           }`}
+          title="Recent Hazards Log — 7-Day Global Incident Surveillance"
         >
           <div className="flex items-center gap-2.5">
             <ShieldAlert className="w-4 h-4 text-rose-400" />
-            <span>Disaster Monitor</span>
+            <span className="font-semibold">Recent Hazards Log</span>
           </div>
-          <span className="px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-mono">
-            {disasterCount}
+          <span className="px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-mono font-bold">
+            {disasterCount} LOGGED
           </span>
         </button>
 
@@ -377,18 +426,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
 
         <button
-          onClick={() => onSelectTab('analyst')}
+          onClick={() => onSelectTab('searoutes')}
           className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
-            currentTab === 'analyst'
-              ? 'bg-purple-500/20 text-purple-300 border border-purple-400/40 shadow-sm'
+            currentTab === 'searoutes'
+              ? 'bg-teal-500/20 text-teal-300 border border-teal-400/40 shadow-sm'
               : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
           }`}
         >
           <div className="flex items-center gap-2.5">
-            <Bot className="w-4 h-4 text-purple-400" />
-            <span>AI Earth Analyst</span>
+            <Ship className="w-4 h-4 text-teal-400" />
+            <span>Live Sea Routes</span>
           </div>
-          <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+            <span className="px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 text-[9px] font-mono uppercase">AIS</span>
+          </span>
+        </button>
+
+        <button
+          onClick={() => onSelectTab('airroutes')}
+          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all ${
+            currentTab === 'airroutes'
+              ? 'bg-violet-500/20 text-violet-300 border border-violet-400/40 shadow-sm'
+              : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <Plane className="w-4 h-4 text-violet-400" />
+            <span>Live Air Routes</span>
+          </div>
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+            <span className="px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 text-[9px] font-mono uppercase">LIVE</span>
+          </span>
         </button>
 
         <button
@@ -521,6 +591,78 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="checkbox"
                 checked={filters.showLabels}
                 onChange={(e) => onFilterChange({ ...filters, showLabels: e.target.checked })}
+                className="rounded accent-sky-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-800/40 cursor-pointer text-orange-300">
+              <span className="flex items-center gap-1.5">
+                <Flame className="w-3 h-3 text-orange-400" />
+                Active Wildfires (FIRMS)
+              </span>
+              <input
+                type="checkbox"
+                checked={filters.showWildfires !== false}
+                onChange={(e) => onFilterChange({ ...filters, showWildfires: e.target.checked })}
+                className="rounded accent-orange-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-800/40 cursor-pointer text-indigo-300">
+              <span className="flex items-center gap-1.5">
+                <Newspaper className="w-3 h-3 text-indigo-400" />
+                Breaking Wire (OSINT)
+              </span>
+              <input
+                type="checkbox"
+                checked={filters.showNews !== false}
+                onChange={(e) => onFilterChange({ ...filters, showNews: e.target.checked })}
+                className="rounded accent-indigo-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-800/40 cursor-pointer text-cyan-300">
+              <span className="flex items-center gap-1.5">
+                <Anchor className="w-3 h-3 text-cyan-400" />
+                Maritime Chokepoints
+              </span>
+              <input
+                type="checkbox"
+                checked={filters.showChokepoints !== false}
+                onChange={(e) => onFilterChange({ ...filters, showChokepoints: e.target.checked })}
+                className="rounded accent-cyan-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-800/40 cursor-pointer text-teal-300">
+              <span className="flex items-center gap-1.5">
+                <Ship className="w-3 h-3 text-teal-400" />
+                Sea Routes (AIS)
+              </span>
+              <input
+                type="checkbox"
+                checked={filters.showSeaRoutes !== false}
+                onChange={(e) => onFilterChange({ ...filters, showSeaRoutes: e.target.checked })}
+                className="rounded accent-teal-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-800/40 cursor-pointer text-violet-300">
+              <span className="flex items-center gap-1.5">
+                <Plane className="w-3 h-3 text-violet-400" />
+                Air Routes (LIVE)
+              </span>
+              <input
+                type="checkbox"
+                checked={filters.showAirRoutes !== false}
+                onChange={(e) => onFilterChange({ ...filters, showAirRoutes: e.target.checked })}
+                className="rounded accent-violet-500 cursor-pointer"
+              />
+            </label>
+            <label className="flex items-center justify-between px-2 py-1 rounded hover:bg-slate-800/40 cursor-pointer text-sky-300">
+              <span className="flex items-center gap-1.5">
+                <Navigation className="w-3 h-3 text-sky-400" />
+                Satellite Points (SGP4)
+              </span>
+              <input
+                type="checkbox"
+                checked={filters.showSatellitePoints !== false}
+                onChange={(e) => onFilterChange({ ...filters, showSatellitePoints: e.target.checked })}
                 className="rounded accent-sky-500 cursor-pointer"
               />
             </label>

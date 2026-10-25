@@ -3,6 +3,7 @@ import datetime
 import httpx
 from typing import List, Dict, Any, Optional, Tuple
 from sgp4.api import Satrec, jday
+from cachetools import TTLCache
 
 # Primary public Earth-observation and disaster-relevant satellites tracked on CelesTrak
 CELESTRAK_TARGETS = [
@@ -646,7 +647,7 @@ class CelesTrakService:
     def __init__(self):
         self._satrec_cache: Dict[int, Satrec] = {}
         self._metadata_cache: Dict[int, Dict[str, Any]] = {}
-        self._pass_cache: Dict[tuple, Dict[str, Any]] = {}
+        self._pass_cache = TTLCache(maxsize=1000, ttl=300)
         self.last_sync_time: Optional[datetime.datetime] = None
         self.is_live_synced: bool = False
         self._init_fallback_catalogs()
